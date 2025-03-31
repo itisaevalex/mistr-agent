@@ -1,0 +1,27 @@
+{
+  "servers": {
+    "perplexity-direct-uvx": {
+      "type": "stdio",
+      "name": "PerplexityDirectUvx",
+      "command": "uvx",
+      "args": ["perplexity-mcp"],
+      "env": {
+        "PERPLEXITY_API_KEY": "YOUR_PERPLEXITY_API_KEY_HERE",
+        "PERPLEXITY_MODEL": "sonar"
+      },
+      "cwd": "C:\\path\\to\\your\\perplexity-mcp", // Adjust path
+      "description": "Web search using Perplexity MCP (direct UVX)"
+    },
+    "desktop-commander": {
+      "type": "stdio",
+      "name": "DesktopCommander",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@wonderwhy-er/desktop-commander" // Or your fork if published
+      ],
+      "description": "Provides terminal, filesystem, and editing tools"
+    }
+  },
+  "defaultServer": "perplexity-direct-uvx" // Choose which server is default
+}

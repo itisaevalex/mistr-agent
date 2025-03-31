@@ -1,0 +1,90 @@
+"use client";
+
+import { useState } from 'react';
+import ToolCall from '../tools/tool-call';
+
+interface ToolCallType {
+  id: string;
+  type: string;
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+interface MessageProps {
+  message: {
+    role: string;
+    content: string;
+    tool_calls?: ToolCallType[];
+    tool_call_id?: string;
+    name?: string;
+  };
+}
+
+export default function ChatMessage({ message }: MessageProps) {
+  const [expanded, setExpanded] = useState(false);
+  const hasTools = message.tool_calls && message.tool_calls.length > 0;
+  
+  // Removed excessive debug logs that were filling up the console
+  
+  return (
+    <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+      <div 
+        className={`rounded-lg p-3 max-w-3xl ${
+          message.role === "user"
+            ? "bg-blue-600 text-white"
+            : "bg-gray-200 dark:bg-gray-700"
+        }`}
+      >
+        {/* Show role badge */}
+        <div className="flex justify-between items-start mb-1">
+          <span className="text-xs opacity-70 font-medium capitalize">
+            {message.role}
+          </span>
+          {hasTools && (
+            <span className="text-xs bg-blue-500 text-white dark:bg-blue-600 px-2 py-0.5 rounded-full">
+              Uses tools
+            </span>
+          )}
+        </div>
+        
+        {/* Message content */}
+        <div className="message-content whitespace-pre-wrap">{message.content}</div>
+        
+        {/* Tool calls section - always visible with toggle */}
+        {hasTools && (
+          <div className="mt-3 border-t border-gray-300 dark:border-gray-600 pt-2">
+            <button 
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center text-xs font-medium hover:underline mb-1"
+            >
+              <span className="mr-1">{expanded ? "▼" : "►"}</span>
+              {message.tool_calls.length} tool{message.tool_calls.length > 1 ? 's' : ''} used
+            </button>
+            
+            {expanded && (
+              <div className="tool-details space-y-2">
+                {message.tool_calls.map((toolCall) => (
+                  <ToolCall 
+                    key={toolCall.id}
+                    name={toolCall.function.name}
+                    args={toolCall.function.arguments}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Tool response indicator */}
+        {message.tool_call_id && (
+          <div className="mt-1 text-xs bg-green-100 dark:bg-green-800 px-2 py-1 rounded flex items-center">
+            <span className="mr-1">🛠️</span>
+            <span className="font-medium">{message.name || "Tool result"}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

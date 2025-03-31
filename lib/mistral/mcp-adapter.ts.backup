@@ -1,0 +1,694 @@
+// src/with-mcp/mcp-adapter.ts
+import { ToolManager } from './tool-manager';
+import { MistralClient, Message } from './mistral-client';
+import { Config } from './config';
+import { McpServerManager } from './mcp-server-manager';
+import { loadMcpConfig } from './config/config-loader';
+import { NegotiatedCapabilities } from './mcp-types';
+import { SecurityManager, ToolApprovalRequest } from './security-manager';
+
+// Define the expected structure of toolResult
+interface ToolResult {
+    content: { type: string; text: string }[];
+}
+
+export class McpAdapter {
+    private toolManager: ToolManager;
+    private client: MistralClient;
+    private conversations: Map<string, Message[]> = new Map();
+    private config: Config;
+    private serverManager: McpServerManager;
+    private securityManager: SecurityManager;
+    private initialized: boolean = false;
+
+    constructor(config: Config, toolManager: ToolManager, mcpConfigPath?: string) {
+        this.toolManager = toolManager;
+        this.config = config;
+        this.client = new MistralClient(this.config);
+        
+        // Load MCP configuration
+        const mcpConfig = loadMcpConfig(mcpConfigPath);
+        this.serverManager = new McpServerManager(mcpConfig);
+        
+        // Initialize security manager
+        this.securityManager = new SecurityManager();
+        
+        // Set approval callback - this would be connected to the UI in a full implementation
+        this.securityManager.setApprovalCallback(this.handleToolApprovalRequest.bind(this));
+        
+        // Initialize MCP servers
+        this.initializeServers().catch(error => {
+            console.error("Failed to initialize MCP servers:", error);
+        });
+    }
+    
+    /**
+     * Handle tool approval request - this is a placeholder that would be connected to the UI
+     * In a real implementation, this would show a dialog to the user and return their choice
+     */
+    private async handleToolApprovalRequest(request: ToolApprovalRequest): Promise<boolean> {
+        console.log('Tool approval request:', request);
+        
+        // In a real implementation, this would show a dialog to the user
+        // For now, we'll automatically approve non-dangerous operations
+        const dangerousOperation = this.securityManager.identifyDangerousOperation(
+            request.toolName, 
+            request.args
+        );
+        
+        if (dangerousOperation) {
+            console.warn(`Automatically denying dangerous operation: ${dangerousOperation}`);
+            return false;
+        }
+        
+        // For demonstration purposes, we'll approve all other requests
+        // In a real implementation, this would await user input
+        console.log(`Automatically approving non-dangerous operation: ${request.toolName}`);
+        return true;
+    }
+
+    /**
+     * Initialize servers and register available features
+     */
+    private async initializeServers(): Promise<void> {
+        try {
+            // Connect to all servers
+            await this.serverManager.initializeServers();
+            
+            // Register tools from servers that support the tools capability
+            await this.discoverAndRegisterTools();
+            
+            this.initialized = true;
+            console.log("MCP adapter initialization completed successfully");
+        } catch (error) {
+            console.error("Error during MCP initialization:", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Discover and register tools from all servers that support the tools capability
+     */
+    private async discoverAndRegisterTools(): Promise<void> {
+        // Get all servers with tools capability
+        const serversWithTools = this.serverManager.getServersWithFeature('tools');
+        console.log(`Discovered ${serversWithTools.length} servers with tools capability`);
+        
+        // Get tools from each server
+        for (const serverId of serversWithTools) {
+            try {
+                const server = this.serverManager.getServer(serverId);
+                const capabilities = this.serverManager.getCapabilities(serverId);
+                
+                // Get tools from the server
+                const toolsResult = await server.client.listTools();
+                
+                // Check if server supports tool list change notifications
+                const supportsToolChanges = this.serverManager.hasCapability(
+                    serverId,
+                    'tools.listChanged'
+                );
+                
+                // Register tools
+                for (const tool of toolsResult.tools) {
+                    this.toolManager.registerMcpTool(serverId, tool, capabilities);
+                }
+                
+                // Set up tool list change listener if supported
+                if (supportsToolChanges) {
+                    this.toolManager.setupToolListChangeListener(
+                        serverId,
+                        server.client,
+                        true
+                    );
+                }
+                
+                console.log(`Registered ${toolsResult.tools.length} tools from server ${serverId}`);
+            } catch (error) {
+                console.error(`Error discovering tools from server ${serverId}:`, error);
+            }
+        }
+    }
+
+    /**
+     * Wait for server connection(s) to be established
+     */
+    async waitForConnection(serverId?: string, timeoutMs: number = 10000): Promise<void> {
+        try {
+            // Wait for server connection with a timeout
+            const serverPromise = this.serverManager.waitForConnection(serverId, timeoutMs);
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Connection timeout after ${timeoutMs}ms`)), timeoutMs);
+            });
+            
+            // Race the connection promise against a timeout
+            await Promise.race([serverPromise, timeoutPromise]);
+            
+            // If waiting for all servers, also wait for initialization to complete
+            if (!serverId) {
+                const startTime = Date.now();
+                
+                while (!this.initialized) {
+                    if (Date.now() - startTime > timeoutMs) {
+                        throw new Error(`MCP initialization timed out after ${timeoutMs}ms`);
+                    }
+                    
+                    // Wait a bit and check again
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+        } catch (error) {
+            console.warn(`Wait for connection failed: ${error.message}`);
+            // We still return normally here - the app will function without MCP if needed
+        }
+    }
+    
+    /**
+     * Check if a specific feature is supported by any server
+     */
+    hasFeature(feature: keyof NegotiatedCapabilities): boolean {
+        const serversWithFeature = this.serverManager.getServersWithFeature(feature);
+        return serversWithFeature.length > 0;
+    }
+    
+    /**
+     * Get capabilities for a specific server
+     */
+    getServerCapabilities(serverId: string): NegotiatedCapabilities | undefined {
+        return this.serverManager.getCapabilities(serverId);
+    }
+    
+    /**
+     * Get all server capabilities
+     */
+    getAllServerCapabilities(): Record<string, NegotiatedCapabilities> {
+        const result: Record<string, NegotiatedCapabilities> = {};
+        
+        // Get all servers
+        const servers = this.serverManager.getServers();
+        
+        for (const serverId of servers) {
+            const capabilities = this.serverManager.getCapabilities(serverId);
+            if (capabilities) {
+                result[serverId] = capabilities;
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * Start a new conversation
+     */
+    async startConversation(): Promise<string> {
+        const conversationId = Date.now().toString();
+        this.conversations.set(conversationId, []);
+        return conversationId;
+    }
+
+    /**
+     * Send a message in a conversation with enhanced LLM integration
+     */
+    async sendMessage(conversationId: string, prompt: string): Promise<{
+        content: string;
+        tool_calls?: any[];
+    }> {
+        if (!this.initialized) {
+            throw new Error("MCP adapter is not fully initialized. Please wait for initialization to complete.");
+        }
+
+        if (!this.serverManager.isServerConnected()) {
+            throw new Error("No MCP servers are connected. Please check server configuration.");
+        }
+
+        let conversation = this.conversations.get(conversationId);
+        if (!conversation) {
+            // Create new conversation with improved system prompt
+            conversation = [];
+            
+            // Get available tool count for system prompt
+            const allTools = this.toolManager.getMistralTools();
+            const toolTypes = new Set(allTools.map(tool => {
+                // Extract type from description or name
+                const name = tool.function.name.toLowerCase();
+                if (name.includes('weather')) return 'weather';
+                if (name.includes('search') || name.includes('lookup')) return 'search';
+                if (name.includes('calc')) return 'calculator';
+                if (name.includes('file')) return 'file management';
+                return 'utility';
+            }));
+            
+            // Create a more informative system prompt based on available tools
+            let systemPrompt = "You are a helpful assistant";
+            
+            if (allTools.length > 0) {
+                systemPrompt += ` that can use ${allTools.length} different tools`;
+                
+                if (toolTypes.size > 0) {
+                    const typesList = Array.from(toolTypes).join(', ');
+                    systemPrompt += ` for ${typesList}`;
+                }
+                
+                systemPrompt += ". Use these tools when appropriate to provide accurate and helpful information.";
+            }
+            
+            conversation.push({
+                role: 'system' as const, 
+                content: systemPrompt
+            });
+            
+            this.conversations.set(conversationId, conversation);
+        }
+        
+        conversation.push({ role: 'user' as const, content: prompt });
+        
+        // Get Mistral-compatible tools with enhanced descriptions
+        const mistralTools = this.toolManager.getMistralTools();
+        console.log(`Providing ${mistralTools.length} tools to Mistral`);
+        
+        // Call Mistral with enhanced logging
+        console.log('Sending conversation to Mistral with tools');
+        
+        let response = await this.client.chat(conversation, { 
+            tools: mistralTools, 
+            toolChoice: 'auto' 
+        });
+
+        // Handle tool calls if present - enhanced version
+        if (response.toolCalls && response.toolCalls.length > 0) {
+            // Process multiple rounds of tool calling if needed
+            return await this.processToolCalls(conversationId, response, conversation);
+        }
+
+        // Add the final response to the conversation
+        const assistantMessage = { 
+            role: 'assistant' as const, 
+            content: response.content,
+            tool_calls: response.toolCalls
+        };
+        conversation.push(assistantMessage);
+        this.conversations.set(conversationId, conversation);
+        
+        // Return both the content and any tool calls
+        return {
+            content: response.content,
+            tool_calls: response.toolCalls
+        };
+    }
+
+    /**
+     * Process tool calls with enhanced error handling and multiple rounds support
+     */
+    private async processToolCalls(
+        conversationId: string,
+        response: any,
+        conversation: Message[]
+    ): Promise<{ content: string; tool_calls?: any[] }> {
+        let currentResponse = response;
+        let maxRounds = 5; // Prevent infinite loops
+        let round = 0;
+        
+        while (currentResponse.toolCalls && currentResponse.toolCalls.length > 0 && round < maxRounds) {
+            round++;
+            console.log(`Processing tool call round ${round}/${maxRounds}`);
+            console.log(`Received ${currentResponse.toolCalls.length} tool calls from Mistral`);
+
+            // Add the assistant's message with tool calls to the conversation
+            conversation.push({
+                role: 'assistant' as const,
+                content: currentResponse.content,
+                tool_calls: currentResponse.toolCalls,
+            });
+
+            // Process each tool call and collect results
+            const toolMessages: Message[] = await this.executeToolCalls(currentResponse.toolCalls);
+
+            // Add tool results to conversation
+            conversation.push(...toolMessages);
+            
+            // Continue the conversation with Mistral
+            console.log('Sending conversation with tool results back to Mistral');
+            currentResponse = await this.client.chat(conversation);
+            
+            // If no more tool calls, we're done with this loop
+            if (!currentResponse.toolCalls || currentResponse.toolCalls.length === 0) {
+                break;
+            }
+        }
+        
+        // Add the final response to the conversation
+        const assistantMessage = { 
+            role: 'assistant' as const, 
+            content: currentResponse.content,
+            tool_calls: currentResponse.toolCalls
+        };
+        conversation.push(assistantMessage);
+        this.conversations.set(conversationId, conversation);
+        
+        // If we reached max rounds, add a note about it
+        if (round >= maxRounds && currentResponse.toolCalls && currentResponse.toolCalls.length > 0) {
+            console.warn(`Reached maximum tool call rounds (${maxRounds}). Some tool calls may not have been processed.`);
+        }
+        
+        return {
+            content: currentResponse.content,
+            tool_calls: currentResponse.toolCalls
+        };
+    }
+
+    /**
+     * Execute a batch of tool calls with enhanced error handling and security checks
+     */
+    private async executeToolCalls(toolCalls: any[]): Promise<Message[]> {
+        const toolMessages: Message[] = [];
+        
+        // Process tool calls in parallel for better performance
+        const toolCallPromises = toolCalls.map(async toolCall => {
+            const { id, function: { name, arguments: argsString } } = toolCall;
+            console.log(`Processing tool call: ${name} with args: ${argsString}`);
+
+            try {
+                // Parse arguments
+                const argsObject = JSON.parse(argsString);
+                
+                // Get the server for this tool (based on the tool name)
+                const toolServer = this.toolManager.getToolServer(name);
+                
+                // Check if the tool exists
+                if (!this.toolManager.hasTool(name)) {
+                    throw new Error(`Tool ${name} is not available`);
+                }
+                
+                // Get context for security checks
+                const context = `conversation-${Array.from(this.conversations.keys())[0] || 'unknown'}`;
+                
+                // Perform security check
+                const securityCheck = await this.securityManager.checkToolCall(
+                    name, 
+                    argsObject, 
+                    toolServer, 
+                    context
+                );
+                
+                // If not allowed, throw error with reason
+                if (!securityCheck.allowed) {
+                    // Here's the important change - we don't show a custom message for needsApproval anymore
+                    // since that would trigger a second approval process
+                    throw new Error(`Security check failed: ${securityCheck.reason || 'Operation not permitted'}`);
+                }
+                
+                // The security manager has already approved if we get here, so we can proceed
+                console.log(`👍 User approved tool usage for ${name}`);
+                
+                // Enhanced validation of arguments
+                await this.validateToolArguments(name, argsObject);
+                
+                // Enhanced security validation
+                const toolMetadata = this.toolManager.getToolMetadata(name);
+                if (toolMetadata) {
+                    const validation = this.securityManager.validateInput(name, argsObject, {
+                        properties: toolMetadata.parameters,
+                        required: toolMetadata.required
+                    });
+                    
+                    if (!validation.valid) {
+                        throw new Error(`Input validation failed: ${validation.error}`);
+                    }
+                }
+                
+                // Check for dangerous operations
+                const dangerousOp = this.securityManager.identifyDangerousOperation(name, argsObject);
+                if (dangerousOp) {
+                    throw new Error(`Security risk detected: ${dangerousOp}`);
+                }
+                
+                console.log(`Calling MCP tool: ${name}${toolServer ? ` on server ${toolServer}` : ''}`);
+                
+                // Call the tool with capability checking
+                const toolResult = await this.serverManager.callTool(
+                    name, 
+                    argsObject,
+                    toolServer
+                ) as ToolResult;
+
+                console.log(`Tool ${name} executed successfully.`);
+                
+                // Format the tool result for Mistral with enhanced processing
+                return {
+                    role: 'tool' as const,
+                    tool_call_id: id,
+                    name: name,
+                    content: this.formatToolResult(name, toolResult),
+                };
+            } catch (error: any) {
+                console.error(`Error executing tool ${name}:`, error);
+                
+                let errorMessage = error.message || 'Unknown error';
+                let suggestionText = this.getSuggestionForError(name, error);
+                
+                // Special handling for security-related errors
+                if (errorMessage.includes('Security') || errorMessage.includes('approval')) {
+                    suggestionText = "Try a different approach that doesn't require sensitive operations, or ask the user to approve the operation.";
+                }
+                
+                // Return enhanced error information to Mistral
+                return {
+                    role: 'tool' as const,
+                    tool_call_id: id,
+                    name: name,
+                    content: JSON.stringify({ 
+                        error: errorMessage,
+                        status: 'error',
+                        // Add more details if available
+                        details: error.details || null,
+                        suggestion: suggestionText
+                    }, null, 2),
+                };
+            }
+        });
+        
+        // Wait for all tool calls to complete
+        const results = await Promise.all(toolCallPromises);
+        
+        // Add all results to the tool messages array
+        toolMessages.push(...results);
+        
+        return toolMessages;
+    }
+
+    /**
+     * Validate tool arguments against the tool's schema with enhanced security
+     */
+    private async validateToolArguments(toolName: string, args: any): Promise<void> {
+        try {
+            // Get the tool metadata
+            const metadata = this.toolManager.getToolMetadata(toolName);
+            if (!metadata) {
+                // If we don't have metadata, we can't validate
+                console.log(`No metadata available for tool ${toolName}, skipping validation`);
+                return;
+            }
+            
+            // Check for required parameters
+            if (metadata.required) {
+                for (const requiredParam of metadata.required) {
+                    if (args[requiredParam] === undefined) {
+                        throw new Error(`Missing required parameter: ${requiredParam}`);
+                    }
+                }
+            }
+            
+            // Enhanced validation with detailed error messages
+            for (const [paramName, paramValue] of Object.entries(args)) {
+                const paramSchema = metadata.parameters[paramName];
+                if (!paramSchema) {
+                    console.warn(`Unknown parameter for tool ${toolName}: ${paramName}`);
+                    continue;
+                }
+                
+                // Check parameter type
+                if (paramSchema.type && paramValue !== undefined) {
+                    const actualType = typeof paramValue;
+                    let expectedType = paramSchema.type;
+                    
+                    // Adjust expected type strings for JavaScript
+                    if (expectedType === 'integer' || expectedType === 'number') {
+                        expectedType = 'number';
+                    }
+                    
+                    if (actualType !== expectedType) {
+                        throw new Error(`Invalid type for parameter ${paramName}. Expected ${expectedType}, got ${actualType}`);
+                    }
+                    
+                    // For strings, check for potential injection attacks
+                    if (expectedType === 'string' && actualType === 'string') {
+                        // Check for code injection attempts
+                        const suspiciousPatterns = [
+                            /<script/i, 
+                            /javascript:/i, 
+                            /eval\(/i, 
+                            /document\.cookie/i,
+                            /process\.env/i,
+                            /require\(/i,
+                            /import\s*\(/i,
+                            /exec\(/i,
+                            /system\(/i
+                        ];
+                        
+                        for (const pattern of suspiciousPatterns) {
+                            if (pattern.test(paramValue as string)) {
+                                throw new Error(`Security validation failed: Suspicious pattern detected in parameter ${paramName}`);
+                            }
+                        }
+                    }
+                }
+                
+                // Enhanced enum validation with more helpful error messages
+                if (paramSchema.enum && !paramSchema.enum.includes(paramValue)) {
+                    throw new Error(
+                        `Invalid value for parameter ${paramName}. ` + 
+                        `Received: "${paramValue}". ` +
+                        `Expected one of: ${paramSchema.enum.map(v => `"${v}"`).join(', ')}`
+                    );
+                }
+                
+                // Add validation for parameter length, format, range, etc.
+                if (paramSchema.maxLength && typeof paramValue === 'string' && paramValue.length > paramSchema.maxLength) {
+                    throw new Error(`Parameter ${paramName} exceeds maximum length of ${paramSchema.maxLength} characters`);
+                }
+                
+                if (paramSchema.minLength && typeof paramValue === 'string' && paramValue.length < paramSchema.minLength) {
+                    throw new Error(`Parameter ${paramName} is shorter than the minimum length of ${paramSchema.minLength} characters`);
+                }
+                
+                if (paramSchema.minimum !== undefined && typeof paramValue === 'number' && paramValue < paramSchema.minimum) {
+                    throw new Error(`Parameter ${paramName} is less than the minimum value of ${paramSchema.minimum}`);
+                }
+                
+                if (paramSchema.maximum !== undefined && typeof paramValue === 'number' && paramValue > paramSchema.maximum) {
+                    throw new Error(`Parameter ${paramName} exceeds the maximum value of ${paramSchema.maximum}`);
+                }
+            }
+        } catch (error) {
+            // Unlike before, we now throw the error to enforce validation
+            console.error(`Validation error for tool ${toolName}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Format tool result for Mistral with improved handling
+     */
+    private formatToolResult(toolName: string, toolResult: ToolResult): string {
+        if (!toolResult.content || toolResult.content.length === 0) {
+            return JSON.stringify({ status: 'success', result: null });
+        }
+        
+        const content = toolResult.content[0];
+        
+        // Handle different content types
+        if (content.type === 'text') {
+            if (typeof content.text === 'string') {
+                return content.text;
+            } else {
+                return JSON.stringify(content.text);
+            }
+        } else {
+            // For non-text content, return a formatted JSON response
+            return JSON.stringify({
+                status: 'success',
+                contentType: content.type,
+                result: content
+            }, null, 2);
+        }
+    }
+
+    /**
+     * Get a helpful suggestion for an error
+     */
+    private getSuggestionForError(toolName: string, error: any): string {
+        const errorMessage = error.message?.toLowerCase() || '';
+        
+        if (errorMessage.includes('required parameter')) {
+            return 'Try providing all required parameters for this tool.';
+        } else if (errorMessage.includes('invalid type')) {
+            return 'Check the parameter types to ensure they match what the tool expects.';
+        } else if (errorMessage.includes('not available') || errorMessage.includes('not found')) {
+            return `The tool "${toolName}" might not be available. Try using a different tool.`;
+        } else if (errorMessage.includes('server') || errorMessage.includes('connection')) {
+            return 'There might be a connection issue with the tool server. Try again later.';
+        }
+        
+        return 'Try a different approach or tool to accomplish your task.';
+    }
+
+    /**
+     * Get conversation history
+     */
+    getConversationHistory(conversationId: string): Message[] {
+        return this.conversations.get(conversationId) || [];
+    }
+
+    /**
+     * Disconnect from all servers
+     */
+    disconnect() {
+        this.serverManager.disconnectAll();
+    }
+
+    /**
+     * Get the server manager
+     */
+    getServerManager(): McpServerManager {
+        return this.serverManager;
+    }
+    
+    /**
+     * Get the security manager
+     */
+    getSecurityManager(): SecurityManager {
+        return this.securityManager;
+    }
+    
+    /**
+     * Get list of all servers and their connection status
+     */
+    getServers(): Record<string, boolean> {
+        const result: Record<string, boolean> = {};
+        const servers = this.serverManager.getServers();
+        
+        for (const serverId of servers) {
+            result[serverId] = this.serverManager.isServerConnected(serverId);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Get detailed server information, including capabilities
+     */
+    getServerInfo(): Record<string, any> {
+        return this.serverManager.getServerInfo();
+    }
+    
+    /**
+     * Get list of available tools across all servers with capability awareness
+     */
+    getAvailableTools(): Record<string, any[]> {
+        const result: Record<string, any[]> = {};
+        
+        // Get servers with tools capability
+        const serversWithTools = this.toolManager.getServersWithTools();
+        
+        for (const serverId of serversWithTools) {
+            // Only include servers that advertise tools capability
+            const capabilities = this.serverManager.getCapabilities(serverId);
+            if (capabilities && capabilities.tools) {
+                const tools = this.toolManager.getToolsFromServer(serverId, capabilities);
+                result[serverId] = tools;
+            }
+        }
+        
+        return result;
+    }
+}
