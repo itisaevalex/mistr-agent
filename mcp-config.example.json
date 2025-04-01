@@ -1,27 +1,17 @@
 {
   "servers": {
-    "perplexity-direct-uvx": {
+    "accuweather": {
       "type": "stdio",
-      "name": "PerplexityDirectUvx",
-      "command": "uvx",
-      "args": ["perplexity-mcp"],
+      "name": "AccuWeatherServer",
+      "command": "python",
+      "args": ["-m", "mcp_weather"],
+      "cwd": "mcp-servers/accuweather",
       "env": {
-        "PERPLEXITY_API_KEY": "YOUR_PERPLEXITY_API_KEY_HERE",
-        "PERPLEXITY_MODEL": "sonar"
+        "ACCUWEATHER_API_KEY": "YOUR_API_KEY_HERE",
+        "PYTHONPATH": "./mcp-servers/accuweather"
       },
-      "cwd": "C:\\path\\to\\your\\perplexity-mcp", // Adjust path
-      "description": "Web search using Perplexity MCP (direct UVX)"
-    },
-    "desktop-commander": {
-      "type": "stdio",
-      "name": "DesktopCommander",
-      "command": "npx",
-      "args": [
-        "-y",
-        "@wonderwhy-er/desktop-commander" // Or your fork if published
-      ],
-      "description": "Provides terminal, filesystem, and editing tools"
+      "description": "AccuWeather hourly forecast service"
     }
   },
-  "defaultServer": "perplexity-direct-uvx" // Choose which server is default
+  "defaultServer": "accuweather"
 }
