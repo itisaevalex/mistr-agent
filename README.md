@@ -23,6 +23,17 @@ Unlike basic chat interfaces, this agent can maintain context across multi-step 
   </tr>
 </table>
 
+<table>
+  <tr>
+    <td><img src="assets/images/saved-conversations.png" alt="Saved Conversations Example" width="400"/></td>
+    <td><img src="assets/images/tool-list.png" alt="Tool List" width="400"/></td>
+  </tr>
+  <tr>
+    <td>Chat History Interface</td>
+    <td>Tool List Dropdown</td>
+  </tr>
+</table>
+
 ## Core Capabilities
 
 🧠 **Autonomous Task Execution**
