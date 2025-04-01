@@ -1,6 +1,6 @@
 # Mistr. Agent  
 
-A powerful autonomous MCP client for Mistral AI models with Model Context Protocol (MCP) integration, enabling AI-driven task execution across local and web environments.
+An autonomous MCP client for Mistral AI models with Model Context Protocol (MCP) integration, enabling AI-driven task execution across local and web environments.
 
 ![Main Interface](assets/images/main-interface.png)
 
