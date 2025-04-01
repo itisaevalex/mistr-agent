@@ -25,8 +25,8 @@ Unlike basic chat interfaces, this agent can maintain context across multi-step 
 
 <table>
   <tr>
-    <td><img src="assets/images/saved-conversations.png" alt="Saved Conversations Example" width="400"/></td>
-    <td><img src="assets/images/tool-list.png" alt="Tool List" width="400"/></td>
+    <td><img src="assets/images/saved-conversations.png" alt="Saved Conversations Example" width="200"/></td>
+    <td><img src="assets/images/tool-list.png" alt="Tool List" width="200"/></td>
   </tr>
   <tr>
     <td>Chat History Interface</td>
