@@ -4,7 +4,10 @@ const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio
 const https = require('https');
 
 // Get API key from environment variable
-const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY || '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';
+const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
+if (!PERPLEXITY_API_KEY) {
+  throw new Error('PERPLEXITY_API_KEY environment variable is required');
+}
 const PERPLEXITY_MODEL = process.env.PERPLEXITY_MODEL || 'sonar';
 
 async function startServer() {

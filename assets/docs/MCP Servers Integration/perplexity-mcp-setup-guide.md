@@ -47,7 +47,7 @@ You can set these variables in several ways:
 
 **Command Line (Temporary):**
 ```bash
-set PERPLEXITY_API_KEY=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
+set PERPLEXITY_API_KEY=your-api-key
 set PERPLEXITY_MODEL=sonar
 ```
 
@@ -56,7 +56,7 @@ Create a batch file called `launch_perplexity_mcp.bat` with the following conten
 
 ```batch
 @echo off
-set PERPLEXITY_API_KEY=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
+set PERPLEXITY_API_KEY=your-api-key
 set PERPLEXITY_MODEL=sonar
 
 echo Starting Perplexity MCP server...
@@ -108,7 +108,7 @@ from perplexity_mcp.server import call_perplexity
 
 async def test_perplexity_directly():
     # Set the required environment variables
-    os.environ["PERPLEXITY_API_KEY"] = "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"
+    os.environ["PERPLEXITY_API_KEY"] = "your-api-key"
     os.environ["PERPLEXITY_MODEL"] = "sonar"
     
     # Test queries with different recency settings
@@ -155,7 +155,7 @@ from perplexity_mcp.server import call_perplexity, list_tools, call_tool
 
 async def test_perplexity_directly():
     # Set the required environment variables
-    os.environ["PERPLEXITY_API_KEY"] = "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"
+    os.environ["PERPLEXITY_API_KEY"] = "your-api-key"
     os.environ["PERPLEXITY_MODEL"] = "sonar"
     
     # Test the list_tools handler
@@ -214,7 +214,7 @@ The MCP Inspector is a visual tool for testing MCP servers.
 ```batch
 @echo off
 echo Setting up environment for Perplexity MCP server...
-set PERPLEXITY_API_KEY=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
+set PERPLEXITY_API_KEY=your-api-key
 set PERPLEXITY_MODEL=sonar
 
 echo Starting Perplexity MCP server...
@@ -256,7 +256,7 @@ npx @modelcontextprotocol/inspector
 ```json
 "perplexity-mcp": {
   "env": {
-    "PERPLEXITY_API_KEY": "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",
+    "PERPLEXITY_API_KEY": "your-api-key",
     "PERPLEXITY_MODEL": "sonar"
   },
   "command": "C:\\Users\\Alex Isaev\\Documents\\mistral MCP adapter\\ui\\mcp-servers\\perplexity-mcp\\launch_for_inspector.bat",
